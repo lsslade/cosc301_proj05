@@ -119,7 +119,7 @@ uint16_t print_dirent(struct direntry *dirent, int indent)
     return followclust;
 }
 
-
+//copy this --recursive!
 void follow_dir(uint16_t cluster, int indent,
 		uint8_t *image_buf, struct bpb33* bpb)
 {
@@ -142,7 +142,7 @@ void follow_dir(uint16_t cluster, int indent,
     }
 }
 
-
+//copy and paste this.
 void traverse_root(uint8_t *image_buf, struct bpb33* bpb)
 {
     uint16_t cluster = 0;

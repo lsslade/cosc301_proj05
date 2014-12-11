@@ -31,7 +31,7 @@ uint16_t print_dirent(struct direntry *dirent, int indent)
     int i;
     char name[9];
     char extension[4];
-    uint32_t size;#include "dos.h"
+    uint32_t size;
     uint16_t file_cluster;
     name[8] = ' ';
     extension[3] = ' ';
