@@ -37,28 +37,6 @@ int main(int argc, char** argv) {
 
     // your code should start here...
 
-
-    unmmap_file(image_buf, &fd);
-    return 0;
-}
-
-
-void delete_extra (uint16_t cluster){
-	uint16_t cluster1 = get_fat_entry(cluster, image_buf, bpb);
-	if (!is_end_of_file(cluster1)){
-		uint16_t fat_entry1 = get_fat_entry(cluster1, image_buf, bpb);
-		while (!is_end_of_file(fat_entry1)){
-			cluster1 = fat_entry1;
-			fat_entry1 = get_fat_entry(cluster1, image_buf, bpb); 
-		}
-		//free fat_entry1
-		//set cluster1 to EOF	
-	}
-	else {
-		//free cluster1
-		}
-}
-
 int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb){
 	uint16_t cluster = getushort(dirent->deStartCluster);
     uint32_t bytes_remaining = getulong(dirent->deFileSize);
@@ -81,10 +59,9 @@ int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* b
 		while (!is_end_of_file(get_fat_entry(cluster, image_buf, bpb)){
 			delete_extra (cluster);
 		}
-	//set cluster = end of file. 
 	}
 
-	return 0;
+	
 
 }
 	
@@ -248,6 +225,10 @@ void traverse_root(uint8_t *image_buf, struct bpb33* bpb)
 
 
 
+
+    unmmap_file(image_buf, &fd);
+    return 0;
+}
 
 
 

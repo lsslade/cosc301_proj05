@@ -15,6 +15,7 @@
 #include "dos.h"
 
 
+
 void print_indent(int indent)
 {
     int i;
@@ -30,7 +31,7 @@ uint16_t print_dirent(struct direntry *dirent, int indent)
     int i;
     char name[9];
     char extension[4];
-    uint32_t size;
+    uint32_t size;#include "dos.h"
     uint16_t file_cluster;
     name[8] = ' ';
     extension[3] = ' ';
@@ -118,7 +119,7 @@ uint16_t print_dirent(struct direntry *dirent, int indent)
     return followclust;
 }
 
-
+//copy this --recursive!
 void follow_dir(uint16_t cluster, int indent,
 		uint8_t *image_buf, struct bpb33* bpb)
 {
@@ -141,7 +142,7 @@ void follow_dir(uint16_t cluster, int indent,
     }
 }
 
-
+//copy and paste this.
 void traverse_root(uint8_t *image_buf, struct bpb33* bpb)
 {
     uint16_t cluster = 0;

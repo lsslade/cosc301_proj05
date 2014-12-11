@@ -16,79 +16,6 @@
 
 
 
-void usage(char *progname) {
-    fprintf(stderr, "usage: %s <imagename>\n", progname);
-    exit(1);
-}
-
-
-
-int main(int argc, char** argv) {
-    uint8_t *image_buf;
-    int fd;
-    struct bpb33* bpb;
-    if (argc < 2) {
-	usage(argv[0]);
-    }
-
-    image_buf = mmap_file(argv[1], &fd);
-    bpb = check_bootsector(image_buf);
-
-
-    // your code should start here...
-
-
-    unmmap_file(image_buf, &fd);
-    return 0;
-}
-
-
-void delete_extra (uint16_t cluster){
-	uint16_t cluster1 = get_fat_entry(cluster, image_buf, bpb);
-	if (!is_end_of_file(cluster1)){
-		uint16_t fat_entry1 = get_fat_entry(cluster1, image_buf, bpb);
-		while (!is_end_of_file(fat_entry1)){
-			cluster1 = fat_entry1;
-			fat_entry1 = get_fat_entry(cluster1, image_buf, bpb); 
-		}
-		//free fat_entry1
-		//set cluster1 to EOF	
-	}
-	else {
-		//free cluster1
-		}
-}
-
-int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb){
-	uint16_t cluster = getushort(dirent->deStartCluster);
-    uint32_t bytes_remaining = getulong(dirent->deFileSize);
-    uint16_t cluster_size = bpb->bpbBytesPerSec * bpb->bpbSecPerClust;
-	int curr_size = cluster_size;	
-
-	//while loop to check if a) cluster is valid
-	while (curr_size<bytes_remaining){
-		if (is_valid_cluster (cluster, bpb) || (!is_end_of_file(cluster) ){
-			//getting next fat entry.
-			uint16_t fat_entry = get_fat_entry(cluster, image_buf, bpb);
-			curr_size += cluster_size;
-			cluster = fat_entry;
-		}
-		else {
-			break;
-			{
-	}
-	if (!is_end_of_file(cluster){
-		while (!is_end_of_file(get_fat_entry(cluster, image_buf, bpb)){
-			delete_extra (cluster);
-		}
-	//set cluster = end of file. 
-	}
-
-	return 0;
-
-}
-	
-	
 void print_indent(int indent)
 {
     int i;
@@ -97,14 +24,14 @@ void print_indent(int indent)
 }
 
 
-uint16_t print_dirent(struct direntry *dirent, int indent,struct bpb33* bpb)
+uint16_t print_dirent(struct direntry *dirent, int indent)
 {
     uint16_t followclust = 0;
 
     int i;
     char name[9];
     char extension[4];
-    uint32_t size;#include "dos.h"
+    uint32_t size;
     uint16_t file_cluster;
     name[8] = ' ';
     extension[3] = ' ';
@@ -192,7 +119,7 @@ uint16_t print_dirent(struct direntry *dirent, int indent,struct bpb33* bpb)
     return followclust;
 }
 
-//copy this --recursive!
+
 void follow_dir(uint16_t cluster, int indent,
 		uint8_t *image_buf, struct bpb33* bpb)
 {
@@ -215,7 +142,7 @@ void follow_dir(uint16_t cluster, int indent,
     }
 }
 
-//copy and paste this.
+
 void traverse_root(uint8_t *image_buf, struct bpb33* bpb)
 {
     uint16_t cluster = 0;
@@ -225,7 +152,7 @@ void traverse_root(uint8_t *image_buf, struct bpb33* bpb)
     int i = 0;
     for ( ; i < bpb->bpbRootDirEnts; i++)
     {
-        uint16_t followclust = print_dirent(dirent, 0, bpb);
+        uint16_t followclust = print_dirent(dirent, 0);
         if (is_valid_cluster(followclust, bpb))
             follow_dir(followclust, 1, image_buf, bpb);
 
@@ -233,41 +160,29 @@ void traverse_root(uint8_t *image_buf, struct bpb33* bpb)
     }
 }
 
-	
-	
-	//use get_entries to get list of FAT entries.
-	/*int end = 0;
-	while (end == 0){
-		//check if data in slot, if so send to is_list_valid, handle accordingly
-		//if no data in slot send to slot_empty.
-			//if returns 0, set end to 1
-			//else set pointer to next data spot to appropriate index given by is_slot_empty.
-		//move pointer to next index in list. 
-	}
-*/
 
-
-
-
-
-
-/*type(some kind of array)?*/ void get_entries (){//also not sure as to parameters
-/*should be able to get the FAT entries and store them in list to be checked later. Will return pointer to list of entries. 
-List entries will probs be of token variety. */
+void usage(char *progname)
+{
+    fprintf(stderr, "usage: %s <imagename>\n", progname);
+    exit(1);
 }
 
-int is_slot_empty ()//not sure what to pass in as value will be &deName[0], not sure of type def.
-/*helper funcion. Will check if you have reached end of directory,( i.e deName[0] contains SLOT_EMPTY)if so will return 0. if so, no more entries in directory. If deName[0] contains SLOT_DELETED then just keep moving through deName and return index number of next filled entry if exists, if next non deleted slot is the empty slot then will return 0.*/
 
-int is_list_valid ()//agian, not sure as to type of params, will be int (size of file) and pointer to first block contianing data for that file.
-/* will go through the list contained in the FAT for the different blocks containing file data. Will check if number of blocks used is what is needed to contain file. if yes, return 1, else, truncate list or file size appropriately and return 0 so we know change was made.
-will truncate file if too few blocks found and will truncate list if too many blocks available. 
-Will need ot mark remaining blocks on the list as deleted to avoid confusion later. 
+int main(int argc, char** argv)
+{
+    uint8_t *image_buf;
+    int fd;
+    struct bpb33* bpb;
+    if (argc != 2)
+    {
+	usage(argv[0]);
+    }
 
-*/
+    image_buf = mmap_file(argv[1], &fd);
+    bpb = check_bootsector(image_buf);
+    traverse_root(image_buf, bpb);
 
+    unmmap_file(image_buf, &fd);
 
-
-
-
-
+    return 0;
+}
