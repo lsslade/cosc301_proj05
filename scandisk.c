@@ -294,7 +294,6 @@ int find_orphans (uint8_t *clust_used, struct bpb33 *bpb, uint8_t num_clust, uin
 			if (clust_val != CLUST_FREE){
 				printf ("orphan found! going to find its tails.\n");
 				orphan_tails (cluster, bpb, clust_used, dirent, image_buf);
-				val = 1;
 				orphan_head_max ++;
 				printf ("cluster = %u\n", cluster);
 				printf ("val at index = %d\n", clust_used[cluster]);
@@ -305,7 +304,39 @@ int find_orphans (uint8_t *clust_used, struct bpb33 *bpb, uint8_t num_clust, uin
 		cluster ++;
 	}
 	printf ("there are at most %d orphan chains \n", orphan_head_max);
+	val = orphan_head_max;
 	return val;
+}
+
+void build_head_list (uint8_t *clust_used, uint8_t *orphan_heads, uint8_t num_clust){
+	uint8_t i = 2;
+	int j = 0;
+ 	while (i < num_clust){	
+		if (clust_used [i] == 3){
+			orphan_heads [j] = i;
+			j ++;
+		}
+		i ++;
+	}
+return;
+}
+	
+	
+
+void build_orphanage (uint8_t *image_buf, struct bpb33* bpb, uint8_t *orphans_head, int i){
+	int clusters_needed = 0;
+	if (orphans_head[i] == 3) {
+		uint8_t cluster = i;
+		while (!is_end_of_file(cluster)){
+			clusters_needed +=1;
+			cluster = get_fat_entry (cluster, image_buf, bpb);
+			}
+		printf ("we need to create a file with %d clusters \n", clusters_needed);
+		}
+	else {
+		printf ("false alarm!\n");
+	}
+	return;
 }
 	
 void usage(char *progname) {
@@ -337,7 +368,13 @@ int main(int argc, char** argv) {
 	//image 3
 	printf ("going to find orphans\n");
 	int val = find_orphans (clust_used, bpb, num_clust, image_buf); 
-
+	uint8_t *orphan_heads = malloc (sizeof (uint8_t) *val);
+	int i = 0;
+	build_head_list (clust_used, orphan_heads, num_clust);
+	while (i<val){
+		build_orphanage (image_buf, bpb, orphan_heads, i);
+		i++;
+	}	
 
     unmmap_file(image_buf, &fd);
     return 0;
