@@ -19,7 +19,7 @@
 
 
 
-void delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb){
+void delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used){
 	printf("in delete_extra\n");
 
 	uint16_t cluster1 = cluster;
@@ -32,6 +32,7 @@ void delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf
 		//free last cluster
 		printf ("fat_entry1 = %u\n", fat_entry1);
 		set_fat_entry(fat_entry1, CLUST_FREE, image_buf, bpb);
+		clust_used[get_fat_entry (fat_entry1, image_buf, bpb)] = 0;
 		printf("freed fat_entry1, it is now %u\n", fat_entry1);
 		//set cluster1 to EOF
 		printf ("cluster1 = %u\n", cluster1);
@@ -46,7 +47,7 @@ void delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf
 	return ;
 }
 
-int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb){
+int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used){
 	uint16_t cluster = getushort(dirent->deStartCluster);
     uint32_t bytes_remaining = getulong(dirent->deFileSize);
     uint16_t cluster_size = bpb->bpbBytesPerSec * bpb->bpbSecPerClust;
@@ -70,7 +71,7 @@ int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* b
 			//printf("going to: delete_extra\n");
 			//uint8_t clustval = malloc (sizeof (uint8_t));
 			//clustval = cluster;
-			delete_extra ( cluster, dirent, image_buf, bpb);
+			delete_extra ( cluster, dirent, image_buf, bpb, clust_used);
 			//set_fat_entry(cluster, get_fat_entry(clustval, image_buf, bpb), image_buf, bpb);
 			
 			
@@ -91,7 +92,7 @@ int truncate_file (struct direntry *dirent, int curr_size){
 
 	}	
 
-int check_length (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb){
+int check_length (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used){
 	uint16_t cluster = getushort(dirent->deStartCluster);
     uint32_t bytes_remaining = getulong(dirent->deFileSize);
     uint16_t cluster_size = bpb->bpbBytesPerSec * bpb->bpbSecPerClust;
@@ -100,12 +101,13 @@ int check_length (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb
 	while (!is_end_of_file(cluster)){
 		cluster = get_fat_entry (cluster, image_buf, bpb);
 		curr_size += cluster_size;
+		clust_used[get_fat_entry (cluster, image_buf, bpb)] = 1;
 	}
 	
 	printf("bytes_remaining is: %u\n",bytes_remaining);
 	printf("curr_size is: %d\n",curr_size);
 	if ((curr_size - bytes_remaining)> cluster_size ) {  //<
-		check_too_long (dirent, image_buf,  bpb);
+		check_too_long (dirent, image_buf,  bpb, clust_used);
 		}
 	if (bytes_remaining > curr_size) {
 		printf ("file to big, going to truncate\n");
@@ -127,7 +129,7 @@ void print_indent(int indent)
 }
 
 //need to delete a bunch of stuff. and add checks
-uint16_t print_dirent(struct direntry *dirent, int indent, uint8_t *image_buf, struct bpb33* bpb)
+uint16_t print_dirent(struct direntry *dirent, int indent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used)
 {
     uint16_t followclust = 0;
 
@@ -218,7 +220,7 @@ uint16_t print_dirent(struct direntry *dirent, int indent, uint8_t *image_buf, s
                sys?'s':' ', 
                arch?'a':' ');
 	//printf("going to check_length\n");
-	int value = check_length (dirent, image_buf, bpb);
+	int value = check_length (dirent, image_buf, bpb, clust_used);
 	//printf ("going to : check_too_long\n");
 	//check_too_long (dirent, image_buf, bpb);
 	//printf("value is: %d\n",value);
@@ -230,8 +232,7 @@ uint16_t print_dirent(struct direntry *dirent, int indent, uint8_t *image_buf, s
 }
 
 //copy this --recursive!
-void follow_dir(uint16_t cluster, int indent,
-		uint8_t *image_buf, struct bpb33* bpb)
+void follow_dir(uint16_t cluster, int indent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used)
 {
     while (is_valid_cluster(cluster, bpb))
     {
@@ -242,9 +243,9 @@ void follow_dir(uint16_t cluster, int indent,
 	for ( ; i < numDirEntries; i++)
 	{
             
-            uint16_t followclust = print_dirent(dirent, indent, image_buf, bpb);
+            uint16_t followclust = print_dirent(dirent, indent, image_buf, bpb, clust_used);
             if (followclust)
-                follow_dir(followclust, indent+1, image_buf, bpb);
+                follow_dir(followclust, indent+1, image_buf, bpb, clust_used);
             dirent++;
 	}
 
@@ -253,7 +254,7 @@ void follow_dir(uint16_t cluster, int indent,
 }
 
 //copy and paste this.
-void traverse_root(uint8_t *image_buf, struct bpb33* bpb)
+void traverse_root(uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used)
 {
     uint16_t cluster = 0;
 
@@ -262,14 +263,50 @@ void traverse_root(uint8_t *image_buf, struct bpb33* bpb)
     int i = 0;
     for ( ; i < bpb->bpbRootDirEnts; i++)
     {
-        uint16_t followclust = print_dirent(dirent, 0, image_buf, bpb);
+        uint16_t followclust = print_dirent(dirent, 0, image_buf, bpb, clust_used);
         if (is_valid_cluster(followclust, bpb))
-            follow_dir(followclust, 1, image_buf, bpb);
+            follow_dir(followclust, 1, image_buf, bpb, clust_used);
 
         dirent++;
     }
 }
 
+void orphan_tails (uint16_t cluster, struct bpb33 *bpb, uint8_t *clust_used, struct direntry *dirent, uint8_t *image_buf){
+	clust_used[get_fat_entry (cluster, image_buf, bpb)] = 3;
+	while (!is_end_of_file(cluster)){
+		cluster = get_fat_entry (cluster, image_buf, bpb);
+		clust_used[get_fat_entry (cluster, image_buf, bpb)] = 2;
+	}	
+	return;
+
+}
+
+int find_orphans (uint8_t *clust_used, struct bpb33 *bpb, uint8_t num_clust, uint8_t *image_buf){
+	printf ("in orphan_tails \n");
+	uint16_t cluster = 2;
+	//uint8_t *orphans = malloc(sizeof(uint8_t) * (num_clust));
+	int val = 0;
+    struct direntry *dirent = (struct direntry*)cluster_to_addr(cluster, image_buf, bpb);
+	int orphan_head_max = 0;
+	while (cluster < num_clust) { //traverse entrire FAT find orphans, val 0 = free, 1 = referenced by directory, 2 = referenced by other orphan, 3 = orphan head.
+		uint16_t clust_val = get_fat_entry (cluster, image_buf, bpb);		
+		if (clust_used[cluster] == 0){
+			if (clust_val != CLUST_FREE){
+				printf ("orphan found! going to find its tails.\n");
+				orphan_tails (cluster, bpb, clust_used, dirent, image_buf);
+				val = 1;
+				orphan_head_max ++;
+				printf ("cluster = %u\n", cluster);
+				printf ("val at index = %d\n", clust_used[cluster]);
+				
+				
+			}
+		}
+		cluster ++;
+	}
+	printf ("there are at most %d orphan chains \n", orphan_head_max);
+	return val;
+}
 	
 void usage(char *progname) {
     fprintf(stderr, "usage: %s <imagename>\n", progname);
@@ -290,42 +327,23 @@ int main(int argc, char** argv) {
     bpb = check_bootsector(image_buf);
 
     // your code should start here...
-	traverse_root(image_buf, bpb);
+	//constants
+	uint16_t num_sectors = 	bpb->bpbSectors;	/* total number of sectors */
+	uint8_t sec_per_clust = bpb->bpbSecPerClust;	/* sectors per cluster */
+	uint8_t num_clust = (num_sectors/sec_per_clust);
+	uint8_t *clust_used = malloc(sizeof(uint8_t) * (num_clust));
+	//images 1 and 2
+	traverse_root(image_buf, bpb, clust_used);
+	//image 3
+	printf ("going to find orphans\n");
+	int val = find_orphans (clust_used, bpb, num_clust, image_buf); 
+
 
     unmmap_file(image_buf, &fd);
     return 0;
 }
 	
-	//use get_entries to get list of FAT entries.
-	/*int end = 0;
-	while (end == 0){
-		//check if data in slot, if so send to is_list_valid, handle accordingly
-		//if no data in slot send to slot_empty.
-			//if returns 0, set end to 1
-			//else set pointer to next data spot to appropriate index given by is_slot_empty.
-		//move pointer to next index in list. 
-	}
-*/
 
-
-
-
-
-
-///*type(some kind of array)?*/ void get_entries (){//also not sure as to parameters
-/*should be able to get the FAT entries and store them in list to be checked later. Will return pointer to list of entries. 
-List entries will probs be of token variety. */
-//}
-
-//int is_slot_empty ()//not sure what to pass in as value will be &deName[0], not sure of type def.
-/*helper funcion. Will check if you have reached end of directory,( i.e deName[0] contains SLOT_EMPTY)if so will return 0. if so, no more entries in directory. If deName[0] contains SLOT_DELETED then just keep moving through deName and return index number of next filled entry if exists, if next non deleted slot is the empty slot then will return 0.*/
-
-//int is_list_valid ()//agian, not sure as to type of params, will be int (size of file) and pointer to first block contianing data for that file.
-/* will go through the list contained in the FAT for the different blocks containing file data. Will check if number of blocks used is what is needed to contain file. if yes, return 1, else, truncate list or file size appropriately and return 0 so we know change was made.
-will truncate file if too few blocks found and will truncate list if too many blocks available. 
-Will need ot mark remaining blocks on the list as deleted to avoid confusion later. 
-
-*/
 
 
 
