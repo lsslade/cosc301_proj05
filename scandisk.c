@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <string.h>
+#include <assert.h>
+#include <ctype.h>
 
 #include "bootsect.h"
 #include "bpb.h"
@@ -20,7 +22,7 @@
 
 
 void delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used){
-	printf("in delete_extra\n");
+	//printf("in delete_extra\n");
 
 	uint16_t cluster1 = cluster;
 	if (!is_end_of_file(cluster1)){
@@ -30,14 +32,14 @@ void delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf
 			fat_entry1 = get_fat_entry(cluster1, image_buf, bpb); 
 		}
 		//free last cluster
-		printf ("fat_entry1 = %u\n", fat_entry1);
+		//printf ("fat_entry1 = %u\n", fat_entry1);
 		set_fat_entry(fat_entry1, CLUST_FREE, image_buf, bpb);
-		clust_used[get_fat_entry (fat_entry1, image_buf, bpb)] = 0;
-		printf("freed fat_entry1, it is now %u\n", fat_entry1);
+		clust_used[fat_entry1] = 0;
+		//printf("freed fat_entry1, it is now %u\n", fat_entry1);
 		//set cluster1 to EOF
-		printf ("cluster1 = %u\n", cluster1);
+		//printf ("cluster1 = %u\n", cluster1);
 		set_fat_entry (cluster1, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
-		printf("set cluster1 to EOF, it is now %u\n", cluster1);	
+		//printf("set cluster1 to EOF, it is now %u\n", cluster1);	
 	}
 	else {
 		//free cluster1
@@ -93,15 +95,31 @@ int truncate_file (struct direntry *dirent, int curr_size){
 	}	
 
 int check_length (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used){
+
 	uint16_t cluster = getushort(dirent->deStartCluster);
     uint32_t bytes_remaining = getulong(dirent->deFileSize);
     uint16_t cluster_size = bpb->bpbBytesPerSec * bpb->bpbSecPerClust;
+	uint16_t next_cluster = get_fat_entry (cluster, image_buf, bpb);
 	//int curr_size = cluster_size;
 	int curr_size = 0;
-	while (!is_end_of_file(cluster)){
-		cluster = get_fat_entry (cluster, image_buf, bpb);
-		curr_size += cluster_size;
-		clust_used[get_fat_entry (cluster, image_buf, bpb)] = 1;
+	clust_used[cluster] = 1;
+	//if the head cluster is bad, free cluster. 
+	if (cluster == (FAT12_MASK & CLUST_BAD)){
+		set_fat_entry(cluster, CLUST_FREE, image_buf, bpb);
+		printf ("bad cluster found, head \n");
+	}
+	else {
+		while (!is_end_of_file(cluster)){
+			if (next_cluster == (FAT12_MASK & CLUST_BAD)){
+				set_fat_entry(next_cluster, CLUST_FREE, image_buf, bpb);
+				set_fat_entry (cluster, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
+				printf ("bad cluster found, middle \n"); 
+			}
+			cluster = get_fat_entry (cluster, image_buf, bpb);
+			next_cluster = get_fat_entry (cluster, image_buf, bpb);
+			clust_used[cluster] = 1;
+			curr_size += cluster_size;
+		}
 	}
 	
 	printf("bytes_remaining is: %u\n",bytes_remaining);
@@ -221,11 +239,9 @@ uint16_t print_dirent(struct direntry *dirent, int indent, uint8_t *image_buf, s
                arch?'a':' ');
 	//printf("going to check_length\n");
 	int value = check_length (dirent, image_buf, bpb, clust_used);
-	//printf ("going to : check_too_long\n");
-	//check_too_long (dirent, image_buf, bpb);
-	//printf("value is: %d\n",value);
+
 	printf ("done checking! :)\n");
-	//check_too_short;
+	
     }
 
     return followclust;
@@ -272,10 +288,24 @@ void traverse_root(uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used)
 }
 
 void orphan_tails (uint16_t cluster, struct bpb33 *bpb, uint8_t *clust_used, struct direntry *dirent, uint8_t *image_buf){
-	clust_used[get_fat_entry (cluster, image_buf, bpb)] = 3;
+	clust_used[cluster] = 3;//[get_fat_entry (cluster, image_buf, bpb)] = 3;
+	printf ("cluster %d now is listed as %d\n", cluster, clust_used[cluster]);
+	uint16_t next_cluster = get_fat_entry (cluster, image_buf, bpb);
+
+	if (cluster == (FAT12_MASK & CLUST_BAD)){
+		set_fat_entry(cluster, CLUST_FREE, image_buf, bpb);
+		printf ("bad cluster found, head \n");
+		}
 	while (!is_end_of_file(cluster)){
+		if (next_cluster == (FAT12_MASK & CLUST_BAD)){
+			set_fat_entry(next_cluster, CLUST_FREE, image_buf, bpb);
+				set_fat_entry (cluster, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
+				printf ("bad cluster found, middle \n"); 
+			}
 		cluster = get_fat_entry (cluster, image_buf, bpb);
-		clust_used[get_fat_entry (cluster, image_buf, bpb)] = 2;
+		clust_used[cluster] = 2;//[get_fat_entry (cluster, image_buf, bpb)] = 2;
+		next_cluster = get_fat_entry (cluster, image_buf, bpb);
+		printf ("cluster %d now is listed as %d\n", cluster, clust_used[cluster]);
 	}	
 	return;
 
@@ -291,12 +321,12 @@ int find_orphans (uint8_t *clust_used, struct bpb33 *bpb, uint8_t num_clust, uin
 	while (cluster < num_clust) { //traverse entrire FAT find orphans, val 0 = free, 1 = referenced by directory, 2 = referenced by other orphan, 3 = orphan head.
 		uint16_t clust_val = get_fat_entry (cluster, image_buf, bpb);		
 		if (clust_used[cluster] == 0){
-			if (clust_val != CLUST_FREE){
+			if (clust_val != 0) {//CLUST_FREE){
 				printf ("orphan found! going to find its tails.\n");
 				orphan_tails (cluster, bpb, clust_used, dirent, image_buf);
 				orphan_head_max ++;
-				printf ("cluster = %u\n", cluster);
-				printf ("val at index = %d\n", clust_used[cluster]);
+				printf ("CLUSTER = %u\n", cluster);
+				printf ("VAL AT INDEX = %d\n", clust_used[cluster]);
 				
 				
 			}
@@ -321,17 +351,134 @@ void build_head_list (uint8_t *clust_used, uint8_t *orphan_heads, uint8_t num_cl
 return;
 }
 	
+/* write the values into a directory entry */
+void write_dirent(struct direntry *dirent, char *filename, 
+		  uint16_t start_cluster, uint32_t size)
+{
+    char *p, *p2;
+    char *uppername;
+    int len, i;
+
+    /* clean out anything old that used to be here */
+    memset(dirent, 0, sizeof(struct direntry));
+
+    /* extract just the filename part */
+    uppername = strdup(filename);
+    p2 = uppername;
+    for (i = 0; i < strlen(filename); i++) 
+    {
+	if (p2[i] == '/' || p2[i] == '\\') 
+	{
+	    uppername = p2+i+1;
+	}
+    }
+
+    /* convert filename to upper case */
+    for (i = 0; i < strlen(uppername); i++) 
+    {
+	uppername[i] = toupper(uppername[i]);
+    }
+
+    /* set the file name and extension */
+    memset(dirent->deName, ' ', 8);
+    p = strchr(uppername, '.');
+    memcpy(dirent->deExtension, "___", 3);
+    if (p == NULL) 
+    {
+	fprintf(stderr, "No filename extension given - defaulting to .___\n");
+    }
+    else 
+    {
+	*p = '\0';
+	p++;
+	len = strlen(p);
+	if (len > 3) len = 3;
+	memcpy(dirent->deExtension, p, len);
+    }
+
+    if (strlen(uppername)>8) 
+    {
+	uppername[8]='\0';
+    }
+    memcpy(dirent->deName, uppername, strlen(uppername));
+    free(p2);
+	printf("freed p2 about to set atrtributes and file size\n");
+
+    /* set the attributes and file size */
+    dirent->deAttributes = ATTR_NORMAL;
+    putushort(dirent->deStartCluster, start_cluster);
+    putulong(dirent->deFileSize, size);
+
+    /* could also set time and date here if we really
+       cared... */
+}
+
+
+
+/* create_dirent finds a free slot in the directory, and write the
+   directory entry */
+
+void create_dirent(struct direntry *dirent, char *filename, 
+		   uint16_t start_cluster, uint32_t size,
+		   uint8_t *image_buf, struct bpb33* bpb)
+{
+	printf ("entered create_dirent\n");
+    while (1) 
+    {
+	if (dirent->deName[0] == SLOT_EMPTY) 
+	{
+		printf ("going to write_dirent (slot empty)\n");
+	    /* we found an empty slot at the end of the directory */
+	    write_dirent(dirent, filename, start_cluster, size);
+	    dirent++;
+
+	    /* make sure the next dirent is set to be empty, just in
+	       case it wasn't before */
+	    memset((uint8_t*)dirent, 0, sizeof(struct direntry));
+	    dirent->deName[0] = SLOT_EMPTY;
+	    return;
+	}
+
+	if (dirent->deName[0] == SLOT_DELETED) 
+	{
+	    /* we found a deleted entry - we can just overwrite it */
+		printf ("going to write_dirent (slot deleted)\n");
+	    write_dirent(dirent, filename, start_cluster, size);
+	    return;
+	}
+	dirent++;
+    }
+}
 	
 
-void build_orphanage (uint8_t *image_buf, struct bpb33* bpb, uint8_t *orphans_head, int i){
-	int clusters_needed = 0;
-	if (orphans_head[i] == 3) {
-		uint8_t cluster = i;
-		while (!is_end_of_file(cluster)){
+void build_orphanage (uint8_t *image_buf, struct bpb33* bpb, uint8_t *orphan_heads, int i){
+	int clusters_needed = 1;
+	if (orphan_heads[i] != 0) {
+		uint16_t start_cluster = orphan_heads[i];
+		uint8_t cluster = orphan_heads[i]; 
+		while ((!is_end_of_file(cluster)) &&(is_valid_cluster (cluster, bpb))){
+			printf("in while loop\n");
 			clusters_needed +=1;
+			printf("clusters_needed is: %d\n", clusters_needed);
 			cluster = get_fat_entry (cluster, image_buf, bpb);
+			printf("next cluster is: %u\n", cluster);
 			}
 		printf ("we need to create a file with %d clusters \n", clusters_needed);
+		char orphanage[32];
+
+		//make the name of the file be "orphanage#.txt"
+		snprintf (orphanage, 32, "orphanage%d.dat", i);
+		
+		uint16_t cluster_size = bpb->bpbBytesPerSec * bpb->bpbSecPerClust;
+		uint32_t size = clusters_needed * cluster_size;
+
+   	 struct direntry *dirent = (struct direntry*)cluster_to_addr(0, image_buf, bpb);		
+	
+		//create orphanage file	
+		printf("going to create %s\n", orphanage);
+		printf("starting cluster is: %u\n", start_cluster);
+		create_dirent(dirent, orphanage, start_cluster,size,image_buf, bpb);
+		printf("created %s\n", orphanage);
 		}
 	else {
 		printf ("false alarm!\n");
@@ -368,19 +515,33 @@ int main(int argc, char** argv) {
 	//image 3
 	printf ("going to find orphans\n");
 	int val = find_orphans (clust_used, bpb, num_clust, image_buf); 
-	uint8_t *orphan_heads = malloc (sizeof (uint8_t) *val);
+	uint8_t *orphan_heads = malloc (sizeof (uint8_t) * val);
+	for(int j = 0; j<val; j++) {
+		orphan_heads[j] = 0;
+	}
+
 	int i = 0;
 	build_head_list (clust_used, orphan_heads, num_clust);
+
+	//for debugging purposes!
+	for(int k = 0; k<val; k++) {
+		printf ("orphan head is: %u\n", orphan_heads[k]);
+	}
+	 
+	/*
 	while (i<val){
+		printf("Building orphanage for %d\n", i);
+		printf("Building orphanage for cluster %u\n", orphan_heads[i]);
 		build_orphanage (image_buf, bpb, orphan_heads, i);
 		i++;
 	}	
+	*/
 
     unmmap_file(image_buf, &fd);
     return 0;
 }
 	
-
+//for bad clusters: if (cluster == (FAT12_MASK & CLUST_BAD))
 
 
 
