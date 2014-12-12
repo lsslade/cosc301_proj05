@@ -41,9 +41,9 @@ void delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf
 	else {
 		//free cluster1
 		//set_fat_entry(cluster1, CLUST_FREE, image_buf, bpb);
-		return ;//cluster1;
+		return ;
 		}
-	return ;// cluster1;
+	return ;
 }
 
 int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb){
@@ -83,7 +83,9 @@ int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* b
 }
 
 int truncate_file (struct direntry *dirent, int curr_size){
-	//will set file size in dirent to appropriate length, max length permitted by number of clusters given.
+	printf ("trimming file size\n");
+	putulong(dirent->deFileSize, curr_size);
+	printf ("trimmed file size to %d\n", curr_size);
 	return 0; 
 	  
 
@@ -93,19 +95,21 @@ int check_length (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb
 	uint16_t cluster = getushort(dirent->deStartCluster);
     uint32_t bytes_remaining = getulong(dirent->deFileSize);
     uint16_t cluster_size = bpb->bpbBytesPerSec * bpb->bpbSecPerClust;
-	int curr_size = cluster_size;
-
+	//int curr_size = cluster_size;
+	int curr_size = 0;
 	while (!is_end_of_file(cluster)){
 		cluster = get_fat_entry (cluster, image_buf, bpb);
 		curr_size += cluster_size;
 	}
-	//printf("bytes_remaining is: %u\n",bytes_remaining);
-	//printf("curr_size is: %d\n",curr_size);
+	
+	printf("bytes_remaining is: %u\n",bytes_remaining);
+	printf("curr_size is: %d\n",curr_size);
 	if ((curr_size - bytes_remaining)> cluster_size ) {  //<
 		check_too_long (dirent, image_buf,  bpb);
 		}
-	if ((bytes_remaining - curr_size) > cluster_size) {
-		//truncate_file (dirent, curr_size); 
+	if (bytes_remaining > curr_size) {
+		printf ("file to big, going to truncate\n");
+		truncate_file (dirent, curr_size); 
 		}
 	else {
 		return 1;
