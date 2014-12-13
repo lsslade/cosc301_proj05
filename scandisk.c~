@@ -16,9 +16,24 @@
 #include "fat.h"
 #include "dos.h"
 
+// Laura Slade and Ashley Jones
 
+/* We worked on just about everything together, Laura did most of array work to hold used cluster data. 
 
+ERRORS THAT WE ARE GETTING!!! 
 
+We are having severe issues with the orphans, we are able to detect them but when we try to create a directory entry for them (using create_dirent calling write_dirent) we encountered an issue : error is './scandisk' : free(): invalid next size (fast): followed by a string of hex numbers which were differnet each time. Using debugging statements we determined that this was happening at the line 'free (p2)' in write_dirent. We spent several (probably 7) hours trying to resolve this issue. We asked several classmates and Professor Stratton before finally posting to Piazza and recieving no response. No one could figure out what was happening. 
+
+To avoid messing up the functionality of the other images we are commenting out the command to run the function that will create the directory entry.
+
+We still did a fair amount of work for this question and hope you will take that into consideration since we have spent the better part of a day (and night) trying to resolve this issue. 
+
+We also attempted to do functionality for 4 and 5 but due to orphan errors were unable to completely fix the disk images. 
+
+We are going to leave in our debugging print statements so that you can potentially see were the issues are coming from. 
+
+Have a great vacation!
+*/
 
 
 int delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used){
@@ -107,11 +122,20 @@ int check_length (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb
 	//int curr_size = cluster_size;
 	int curr_size = 0;
 	int changed = 0;
+	int cut = 0;
+	//breaking chains where 2 FAT entries point to same data. 
+	if (clust_used[cluster] != 0){	
+		set_fat_entry (cluster, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
+		printf ("CUTTTTTT\n");
+		changed =1;
+		cut = 1;
+		}
 	clust_used[cluster] = 1;
 	//if the head cluster is bad, free cluster. 
 	if (cluster == (FAT12_MASK & CLUST_BAD)){
 		set_fat_entry(cluster, CLUST_FREE, image_buf, bpb);
 		printf ("bad cluster found, head \n");
+		changed =1;
 	}
 	else {
 		while (!is_end_of_file(cluster)){
@@ -120,10 +144,22 @@ int check_length (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb
 				set_fat_entry (cluster, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
 				printf ("bad cluster found, middle \n"); 
 			}
+			uint8_t prev_clust = cluster;
 			cluster = get_fat_entry (cluster, image_buf, bpb);
+			if (prev_clust == cluster) {
+					printf("LOOOOOOOOOOOOPED\n");
+					set_fat_entry(prev_clust, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
+					changed = 1;
+				}
 			next_cluster = get_fat_entry (cluster, image_buf, bpb);
 			clust_used[cluster] = 1;
 			curr_size += cluster_size;
+		}
+	}
+	if (cut ==1){
+		if (curr_size > cluster_size){
+			curr_size -= cluster_size;
+		cut = 0;
 		}
 	}
 	
@@ -307,7 +343,7 @@ void orphan_tails (uint16_t cluster, struct bpb33 *bpb, uint8_t *clust_used, str
 		set_fat_entry(cluster, CLUST_FREE, image_buf, bpb);
 		printf ("bad cluster found, head \n");
 		}
-	while (!is_end_of_file(cluster)){
+	while (!is_end_of_file(cluster) ){
 		if (next_cluster == (FAT12_MASK & CLUST_BAD)){
 			set_fat_entry(next_cluster, CLUST_FREE, image_buf, bpb);
 				set_fat_entry (cluster, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
@@ -413,7 +449,6 @@ void write_dirent(struct direntry *dirent, char *filename,
     }
     memcpy(dirent->deName, uppername, strlen(uppername));
     free(p2);
-	printf("freed p2 about to set atrtributes and file size\n");
 
     /* set the attributes and file size */
     dirent->deAttributes = ATTR_NORMAL;
@@ -425,7 +460,6 @@ void write_dirent(struct direntry *dirent, char *filename,
 }
 
 
-
 /* create_dirent finds a free slot in the directory, and write the
    directory entry */
 
@@ -433,12 +467,10 @@ void create_dirent(struct direntry *dirent, char *filename,
 		   uint16_t start_cluster, uint32_t size,
 		   uint8_t *image_buf, struct bpb33* bpb)
 {
-	printf ("entered create_dirent\n");
     while (1) 
     {
 	if (dirent->deName[0] == SLOT_EMPTY) 
 	{
-		printf ("going to write_dirent (slot empty)\n");
 	    /* we found an empty slot at the end of the directory */
 	    write_dirent(dirent, filename, start_cluster, size);
 	    dirent++;
@@ -453,32 +485,40 @@ void create_dirent(struct direntry *dirent, char *filename,
 	if (dirent->deName[0] == SLOT_DELETED) 
 	{
 	    /* we found a deleted entry - we can just overwrite it */
-		printf ("going to write_dirent (slot deleted)\n");
 	    write_dirent(dirent, filename, start_cluster, size);
 	    return;
 	}
 	dirent++;
     }
 }
-	
 
-void build_orphanage (uint8_t *image_buf, struct bpb33* bpb, uint8_t *orphan_heads, int i){
-	int clusters_needed = 1;
-	if (orphan_heads[i] != 0) {
-		uint16_t start_cluster = orphan_heads[i];
-		uint8_t cluster = orphan_heads[i]; 
-		while ((!is_end_of_file(cluster)) &&(is_valid_cluster (cluster, bpb))){
-			printf("in while loop\n");
-			clusters_needed +=1;
-			printf("clusters_needed is: %d\n", clusters_needed);
-			cluster = get_fat_entry (cluster, image_buf, bpb);
-			printf("next cluster is: %u\n", cluster);
+void build_orphanage (uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used, int num_clust){	
+	int i = 2;
+	int n = 1;
+	while (i < num_clust){
+		if (clust_used[i] == 3) {
+		uint16_t start_cluster =i;
+		uint8_t cluster = i; 
+		int clusters_needed = 1;
+			while ((!is_end_of_file(cluster)) &&(is_valid_cluster (cluster, bpb))){
+				printf("in while loop\n");
+				clusters_needed +=1;
+				printf("clusters_needed is: %d\n", clusters_needed);
+				uint8_t prev_clust = cluster;
+				cluster = get_fat_entry (cluster, image_buf, bpb);
+				printf("next cluster is: %u\n", cluster);
+				if (prev_clust == cluster) {
+					set_fat_entry(prev_clust, (FAT12_MASK & CLUST_EOFS), image_buf, bpb);
+				}
 			}
+		//if (clusters_needed >1){
+			//clusters_needed -=1;
+			//}
 		printf ("we need to create a file with %d clusters \n", clusters_needed);
 		char orphanage[32];
 
-		//make the name of the file be "orphanage#.txt"
-		snprintf (orphanage, 32, "orphanage%d.dat", i);
+		//make the name of the file be "orphan#.dat"
+		snprintf (orphanage, 32, "orphan%d.dat", n);
 		
 		uint16_t cluster_size = bpb->bpbBytesPerSec * bpb->bpbSecPerClust;
 		uint32_t size = clusters_needed * cluster_size;
@@ -490,9 +530,12 @@ void build_orphanage (uint8_t *image_buf, struct bpb33* bpb, uint8_t *orphan_hea
 		printf("starting cluster is: %u\n", start_cluster);
 		create_dirent(dirent, orphanage, start_cluster,size,image_buf, bpb);
 		printf("created %s\n", orphanage);
+		n++;
 		}
 	else {
-		printf ("false alarm!\n");
+		//printf ("false alarm!\n");
+	}
+	i++;
 	}
 	return;
 }
@@ -526,7 +569,7 @@ int main(int argc, char** argv) {
 	//image 3
 	printf ("going to find orphans\n");
 	int val = find_orphans (clust_used, bpb, num_clust, image_buf); 
-	uint8_t *orphan_heads = malloc (sizeof (uint8_t) * val);
+	/*uint8_t *orphan_heads = malloc (sizeof (uint8_t) * val);
 	for(int j = 0; j<val; j++) {
 		orphan_heads[j] = 0;
 	}
@@ -546,16 +589,14 @@ int main(int argc, char** argv) {
 		build_orphanage (image_buf, bpb, orphan_heads, i);
 		i++;
 	}	
+	*/
+//	build_orphanage (image_buf, bpb, clust_used, num_clust);
+	//free (clust_used); was causing an error when we tried to free, regardless of where we put the statement.
 	
-
     unmmap_file(image_buf, &fd);
+	
     return 0;
 }
 	
 //for bad clusters: if (cluster == (FAT12_MASK & CLUST_BAD))
-
-
-
-
-
 
