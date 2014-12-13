@@ -21,7 +21,7 @@
 
 
 
-void delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used){
+int delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used){
 	//printf("in delete_extra\n");
 
 	uint16_t cluster1 = cluster;
@@ -44,9 +44,10 @@ void delete_extra (uint16_t cluster, struct direntry *dirent, uint8_t *image_buf
 	else {
 		//free cluster1
 		//set_fat_entry(cluster1, CLUST_FREE, image_buf, bpb);
-		return ;
+		return	0  ;
 		}
-	return ;
+	//printf ("deleted some clusters\n");
+	return 1 ;
 }
 
 int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb, uint8_t *clust_used){
@@ -54,6 +55,7 @@ int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* b
     uint32_t bytes_remaining = getulong(dirent->deFileSize);
     uint16_t cluster_size = bpb->bpbBytesPerSec * bpb->bpbSecPerClust;
 	int curr_size = cluster_size;	
+	int is_deleted = 1;
 	//printf ("checking if too long\n");
 	//while loop to check if a) cluster is valid
 	while (curr_size<bytes_remaining){
@@ -69,11 +71,13 @@ int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* b
 	}
 	if (!is_end_of_file(cluster)){
 		//printf ("chain is too long! it is %d, end cluster is %u\n", curr_size, get_fat_entry(cluster, image_buf, bpb));
-	while (!is_end_of_file(get_fat_entry(cluster, image_buf, bpb))){
+		is_deleted = 0;
+		while (!is_end_of_file(get_fat_entry(cluster, image_buf, bpb))){
 			//printf("going to: delete_extra\n");
 			//uint8_t clustval = malloc (sizeof (uint8_t));
 			//clustval = cluster;
-			delete_extra ( cluster, dirent, image_buf, bpb, clust_used);
+			//printf ("going to delet extras\n");
+			is_deleted = delete_extra ( cluster, dirent, image_buf, bpb, clust_used);
 			//set_fat_entry(cluster, get_fat_entry(clustval, image_buf, bpb), image_buf, bpb);
 			
 			
@@ -82,14 +86,14 @@ int check_too_long (struct direntry *dirent, uint8_t *image_buf, struct bpb33* b
 		set_fat_entry (cluster, (FAT12_MASK & CLUST_EOFS), image_buf, bpb); 
 		} 
 
-	return 0;
+	return is_deleted;
 }
 
 int truncate_file (struct direntry *dirent, int curr_size){
 	printf ("trimming file size\n");
 	putulong(dirent->deFileSize, curr_size);
 	printf ("trimmed file size to %d\n", curr_size);
-	return 0; 
+	return 1; 
 	  
 
 	}	
@@ -102,6 +106,7 @@ int check_length (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb
 	uint16_t next_cluster = get_fat_entry (cluster, image_buf, bpb);
 	//int curr_size = cluster_size;
 	int curr_size = 0;
+	int changed = 0;
 	clust_used[cluster] = 1;
 	//if the head cluster is bad, free cluster. 
 	if (cluster == (FAT12_MASK & CLUST_BAD)){
@@ -122,19 +127,20 @@ int check_length (struct direntry *dirent, uint8_t *image_buf, struct bpb33* bpb
 		}
 	}
 	
-	printf("bytes_remaining is: %u\n",bytes_remaining);
-	printf("curr_size is: %d\n",curr_size);
+	//printf("bytes_remaining is: %u\n",bytes_remaining);
+	//printf("curr_size is: %d\n",curr_size);
 	if ((curr_size - bytes_remaining)> cluster_size ) {  //<
-		check_too_long (dirent, image_buf,  bpb, clust_used);
+		//printf ("chain too long!\n");
+		changed = check_too_long (dirent, image_buf,  bpb, clust_used);
 		}
 	if (bytes_remaining > curr_size) {
-		printf ("file to big, going to truncate\n");
-		truncate_file (dirent, curr_size); 
+		//printf ("file to big, going to truncate\n");
+		changed = truncate_file (dirent, curr_size); //should always be 1 if it reaches this.
 		}
 	else {
-		return 1;
+		return changed;
 		}
-	return 0;	
+	return changed;	
 
 }
 	
@@ -231,17 +237,22 @@ uint16_t print_dirent(struct direntry *dirent, int indent, uint8_t *image_buf, s
 
 	size = getulong(dirent->deFileSize);
 	//print_indent(indent);
-	printf("%s.%s (%u bytes) (starting cluster %d) %c%c%c%c\n", 
+
+	int value = check_length (dirent, image_buf, bpb, clust_used);
+	//printf ("%d\n", value);
+	if (value == 1){
+		printf("%s.%s (%u bytes) (starting cluster %d) %c%c%c%c\n", 
 	       name, extension, size, getushort(dirent->deStartCluster),
 	       ro?'r':' ', 
                hidden?'h':' ', 
                sys?'s':' ', 
                arch?'a':' ');
+		
 	//printf("going to check_length\n");
-	int value = check_length (dirent, image_buf, bpb, clust_used);
 
-	printf ("done checking! :)\n");
-	
+
+		printf ("done checking! :)\n");
+		}
     }
 
     return followclust;
@@ -472,7 +483,7 @@ void build_orphanage (uint8_t *image_buf, struct bpb33* bpb, uint8_t *orphan_hea
 		uint16_t cluster_size = bpb->bpbBytesPerSec * bpb->bpbSecPerClust;
 		uint32_t size = clusters_needed * cluster_size;
 
-   	 struct direntry *dirent = (struct direntry*)cluster_to_addr(0, image_buf, bpb);		
+   	 struct direntry *dirent = (struct direntry*)cluster_to_addr( 0, image_buf, bpb);		
 	
 		//create orphanage file	
 		printf("going to create %s\n", orphanage);
@@ -528,23 +539,18 @@ int main(int argc, char** argv) {
 		printf ("orphan head is: %u\n", orphan_heads[k]);
 	}
 	 
-	/*
+	
 	while (i<val){
 		printf("Building orphanage for %d\n", i);
 		printf("Building orphanage for cluster %u\n", orphan_heads[i]);
 		build_orphanage (image_buf, bpb, orphan_heads, i);
 		i++;
 	}	
-	*/
+	
 
     unmmap_file(image_buf, &fd);
     return 0;
 }
 	
 //for bad clusters: if (cluster == (FAT12_MASK & CLUST_BAD))
-
-
-
-
-
 
